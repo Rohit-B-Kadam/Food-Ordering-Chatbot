@@ -62,7 +62,7 @@ def create_bio_dataset():
     dataset = json.load(open(MAIN_DATASET_PATHS, "r"))
     print(len(dataset))
 
-    for data in dataset[:5]:
+    for data in dataset:
         utterances = data["utterances"]
         intent = extract_intent(data["instruction_id"])
         for utterance in utterances:
