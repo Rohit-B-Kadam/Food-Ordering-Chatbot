@@ -1,32 +1,35 @@
 import re
 
-from numpy.core.multiarray import ndarray
+import sys
+import json
 import tensorflow as tf
+from numpy.core.multiarray import ndarray
 
 from path_manager import PATHS
-from model.training.transformer_model import transformer
+from model.training.transformer_model import transformer, CustomSchedule
 
 UTTERANCES_FILE = PATHS["slot_tagger_dataset"]["utterances"]
 BIO_TAGS_FILE = PATHS["slot_tagger_dataset"]["bio_tags"]
 INTENT_FILE = PATHS["slot_tagger_dataset"]["intent"]
-MODEL_CHECKPOINTS_PATH = "model/training/checkpoints"
+MODEL_CHECKPOINTS_PATH = "model/training/weights/checkpoints"
+TOKENIZER_PATH = "model/training/weights/tokenizer.json"
 
-START_TOKEN = "BOS "  # BOS: Begin of sentence
-END_TOKEN = " EOS"  # EOS: End of sentence
+START_TOKEN = "BOS "    # BOS: Begin of sentence
+END_TOKEN = " EOS"      # EOS: End of sentence
 
-## Data Parameter
+# Data Parameter
 BATCH_SIZE = 64
-BUFFER_SIZE = 200  # range in which data will shuffle (2000)
-VOCAB_SIZE = 2 ** 10  # but it modify afterward (2**13)
-MAX_LENGTH = 128  # Maximum sentence length (512)
+BUFFER_SIZE = 200   # range in which data will shuffle (2000)
+VOCAB_SIZE = 0      # while after training tokenizer we setting this value
+MAX_LENGTH = 128    # Maximum sentence length (512)
 
 # Model parameters
-NUM_LAYERS = 4  # Number of encoder layer and decoder layer in ECODER and DECODER
-D_MODEL = 256  # Dense Model units
-NUM_HEADS = 8  # Number of head in Multi head attention
-UNITS = 512  #
-DROPOUT = 0.1  #
-EPOCHS = 2  #
+NUM_LAYERS = 4      # Number of encoder layer and decoder layer in ENCODER and DECODER
+D_MODEL = 256       # Dense Model units
+NUM_HEADS = 8       # Number of head in Multi head attention
+UNITS = 512         #
+DROPOUT = 0.1       #
+EPOCHS = 2          #
 
 
 def load_data(utterances_file_path: str, tags_file_path: str, intent_file_path: str):
@@ -58,7 +61,7 @@ def preprocess_tags(tag):
     return tag
 
 
-def get_tokenizer(texts, tags):
+def train_save_tokenizer(texts, tags):
     tokenizer = tf.keras.preprocessing.text.Tokenizer(filters="")
     tokenizer.fit_on_texts(texts + tags)  # train tokenizer
 
@@ -70,7 +73,28 @@ def get_tokenizer(texts, tags):
     tag_tensor = tf.keras.preprocessing.sequence.pad_sequences(
         tag_tensor, maxlen=MAX_LENGTH, padding='post')  # pad all tensor
 
+    # save tokenizer
+    tokenizer_json = tokenizer.to_json()
+    with open(TOKENIZER_PATH, 'w', encoding='utf-8') as f:
+        f.write(json.dumps(tokenizer_json, ensure_ascii=False))
+
+    # setting VOCAB_SIZE
+    global VOCAB_SIZE
+    VOCAB_SIZE = len(tokenizer.word_counts) + 1
+
     return text_tensor, tag_tensor, tokenizer
+
+
+def get_save_tokenizer():
+
+    with open('tokenizer.json') as f:
+        data = json.load(f)
+        tokenizer = tf.keras.preprocessing.text.tokenizer_from_json(data)
+
+    # setting VOCAB_SIZE
+    global VOCAB_SIZE
+    VOCAB_SIZE = len(tokenizer.word_counts) + 1
+    return tokenizer
 
 
 def create_tf_dataset(utterances: ndarray, tags: ndarray):
@@ -108,39 +132,13 @@ def loss_function(y_true, y_pred):
     return tf.reduce_mean(loss)
 
 
-# Custom Learning rate
-class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-
-    def __init__(self, d_model, warmup_steps=4000):
-        super(CustomSchedule, self).__init__()
-
-        self.d_model = d_model
-        self.d_model = tf.cast(self.d_model, tf.float32)
-
-        self.warmup_steps = warmup_steps
-
-    def get_config(self):
-        config = {}
-        config.update({
-            'd_model': self.d_model,
-            'warmup_steps': self.warmup_steps
-        })
-        return config
-
-    def __call__(self, step):
-        arg1 = tf.math.rsqrt(step)
-        arg2 = step * (self.warmup_steps ** -1.5)
-
-        return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
-
-
 def accuracy(y_true, y_pred):
     # ensure labels have shape (batch_size, MAX_LENGTH - 1)
     y_true = tf.reshape(y_true, shape=(-1, MAX_LENGTH - 1))
     return tf.keras.metrics.sparse_categorical_accuracy(y_true, y_pred)
 
 
-def train_model(dataset):
+def train_transformer(dataset):
     tf.keras.backend.clear_session()
 
     model = transformer(
@@ -164,29 +162,91 @@ def train_model(dataset):
         filepath=checkpoint_path,
         verbose=1,
         save_weights_only=True,
-        save_freq=219)
+        save_freq=100)
 
-    model.fit(dataset, epochs=EPOCHS, callbacks=[cp_callback])
+    model.fit(dataset, epochs=EPOCHS, callbacks=[cp_callback], validation_split=0.2)
+
+    return model
 
 
-def main():
+def train_model():
+    print("Training the model...")
     utterances, tags, intents = load_data(UTTERANCES_FILE, BIO_TAGS_FILE, INTENT_FILE)
     print(f"Dataset size: {len(utterances)}")
 
     utterances = list(map(preprocess_utterance, utterances))
     tags = list(map(preprocess_tags, tags))
 
-    utterance_tensor, tag_tensor, tokenizer = get_tokenizer(utterances, tags)
+    utterance_tensor, tag_tensor, tokenizer = train_save_tokenizer(utterances, tags)
     print(f"Max sentence length: {len(utterance_tensor[0])}")
     print(f"Utterance Tokenized sample:  {utterance_tensor[10]}")
     print(f"Max tags sequence length: {len(tag_tensor[0])}")
     print(f"Tags tokenized sample: {tag_tensor[10]}")
 
-    # print(tokenizer.get_config())   # save this config
-    global VOCAB_SIZE
-    VOCAB_SIZE = len(tokenizer.word_counts) + 1
     dataset = create_tf_dataset(utterance_tensor, tag_tensor)
-    train_model(dataset)
+    model = train_transformer(dataset)
+
+    return model
+
+
+def evaluate(sentence, tokenizer, model):
+    sentence = preprocess_utterance(sentence)
+
+    sentence = tf.expand_dims(
+        START_TOKEN + tokenizer.encode(sentence) + END_TOKEN, axis=0)
+
+    output = tf.expand_dims(START_TOKEN, 0)
+
+    for i in range(MAX_LENGTH):
+        predictions = model(inputs=[sentence, output], training=False)
+
+        # select the last word from the seq_len dimension
+        predictions = predictions[:, -1:, :]
+        predicted_id = tf.cast(tf.argmax(predictions, axis=-1), tf.int32)
+
+        # return the result if the predicted_id is equal to the end token
+        if tf.equal(predicted_id, END_TOKEN[0]):
+            break
+
+        # concatenated the predicted_id to the output which is given to the decoder
+        # as its input.
+        output = tf.concat([output, predicted_id], axis=-1)
+
+    return tf.squeeze(output, axis=0)
+
+
+def predict(sentence, tokenizer, model):
+    prediction = evaluate(sentence, tokenizer, model)
+
+    predicted_sentence = tokenizer.decode(
+        [i for i in prediction if i < tokenizer.vocab_size])
+
+    print('Input: {}'.format(sentence))
+    print('Output: {}'.format(predicted_sentence))
+
+    return predicted_sentence
+
+
+def evaluate_model():
+    print("Evaluating the model...")
+
+
+def print_help():
+    print("Provide following command line argument: ")
+    print("--train : for training")
+    print("--eval  : for evaluate")
+
+
+def main():
+    if len(sys.argv) == 2:
+        if sys.argv[1].lower() == "--train":
+            train_model()
+        elif sys.argv[1].lower() == "--eval":
+            evaluate_model()
+        else:
+            print_help()
+    else:
+        print_help()
 
 
 if __name__ == "__main__":
