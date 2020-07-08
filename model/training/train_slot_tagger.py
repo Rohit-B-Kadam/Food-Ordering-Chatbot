@@ -1,9 +1,11 @@
 import re
 
 import sys
+import os
 import json
 import tensorflow as tf
 from numpy.core.multiarray import ndarray
+
 
 from path_manager import PATHS
 from model.training.transformer_model import transformer, CustomSchedule
@@ -229,6 +231,8 @@ def predict(sentence, tokenizer, model):
 
 def evaluate_model():
     print("Evaluating the model...")
+    tokenizer = get_save_tokenizer()
+    print(tokenizer.fit_on_texts("Hi , how are you ?"))
 
 
 def print_help():
