@@ -169,8 +169,7 @@ def train_transformer(train_dataset, val_dataset):
         filepath=checkpoint_path,
         verbose=1,
         save_weights_only=True,
-        save_best_only=True,
-        save_freq=100)
+        period=4)
 
     model.fit(train_dataset, epochs=EPOCHS, callbacks=[cp_callback], validation_data=val_dataset)
 
