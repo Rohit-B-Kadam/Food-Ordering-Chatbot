@@ -13,12 +13,12 @@ from model.training.transformer_model import transformer, CustomSchedule
 UTTERANCES_FILE = PATHS["slot_tagger_dataset"]["utterances"]
 BIO_TAGS_FILE = PATHS["slot_tagger_dataset"]["bio_tags"]
 INTENT_FILE = PATHS["slot_tagger_dataset"]["intent"]
-MODEL_CHECKPOINTS_PATH = "model/training/weights/checkpoints"
-TOKENIZER_PATH = "model/training/weights/tokenizer.json"
-
-# colab path
 # MODEL_CHECKPOINTS_PATH = "model/training/weights/checkpoints"
 # TOKENIZER_PATH = "model/training/weights/tokenizer.json"
+
+# colab path
+MODEL_CHECKPOINTS_PATH = "/content/drive/My Drive/weights/checkpoints"
+TOKENIZER_PATH = "/content/drive/My Drive/weights/tokenizer.json"
 
 START_TOKEN = "BOS "  # BOS: Begin of sentence
 END_TOKEN = " EOS"  # EOS: End of sentence
@@ -36,7 +36,7 @@ D_MODEL = 256  # Dense Model units
 NUM_HEADS = 8  # Number of head in Multi head attention
 UNITS = 512  #
 DROPOUT = 0.1  #
-EPOCHS = 2  #
+EPOCHS = 100  #
 
 
 NLP = spacy.load('en_core_web_sm')
@@ -182,7 +182,7 @@ def train_transformer(train_dataset, val_dataset):
         filepath=checkpoint_path,
         verbose=1,
         save_weights_only=True,
-        period=4)
+        period=20)
 
     model.fit(train_dataset, epochs=EPOCHS, callbacks=[cp_callback], validation_data=val_dataset)
 
@@ -208,7 +208,7 @@ def train_model():
     train_dataset, val_dataset = create_tf_dataset(utterance_tensor, tag_tensor)
     model = train_transformer(train_dataset, val_dataset)
 
-    evaluate_model(model , tokenizer)
+    evaluate_model(tokenizer, model)
     return model
 
 
