@@ -16,6 +16,10 @@ INTENT_FILE = PATHS["slot_tagger_dataset"]["intent"]
 MODEL_CHECKPOINTS_PATH = "model/training/weights/checkpoints"
 TOKENIZER_PATH = "model/training/weights/tokenizer.json"
 
+# colab path
+# MODEL_CHECKPOINTS_PATH = "model/training/weights/checkpoints"
+# TOKENIZER_PATH = "model/training/weights/tokenizer.json"
+
 START_TOKEN = "BOS "  # BOS: Begin of sentence
 END_TOKEN = " EOS"  # EOS: End of sentence
 
